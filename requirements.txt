@@ -3,3 +3,10 @@ pdfplumber==0.11.6
 
 # Tier A + B sequence features
 biopython==1.88
+
+# Evaluation layer.  Pinned to what these runs were produced with (Python 3.14): the selection
+# step uses ColumnTransformer arguments that changed name after scikit-learn 1.4.
+pandas==3.0.6
+numpy==2.5.4
+scikit-learn==1.9.1
+scipy==1.18.1

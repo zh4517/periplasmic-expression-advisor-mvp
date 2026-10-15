@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from rpp.composition import (
+    AMINO_ACIDS,
     amino_acid_counts,
     amino_acid_frequencies,
     derived_composition,
@@ -15,6 +16,29 @@ from rpp.composition import (
 )
 from rpp.physicochemistry import physicochemical_features
 from rpp.signal_peptides import split_signal_peptide
+
+# Columns of data/processed/features_tier_ab.csv that describe the record rather than the sequence.
+META_COLUMNS = (
+    "row_no",
+    "protein",
+    "signal_peptide",
+    "media",
+    "od",
+    "iptg",
+    "temperature",
+    "time",
+    "yield_mgl",
+    "yield_min",
+    "yield_max",
+    "level_codes",
+    "level_from_yield_max",
+    "condition_fully_specified",
+    "rsm_optimized",
+    "reference",
+    "sp_inferred_length",
+    "sp_label_resolved",
+    "sp_resolved",
+)
 
 
 def _composition_block(sequence: str) -> dict[str, float]:
@@ -71,3 +95,32 @@ def extract_features(
             )
 
     return features
+
+
+def feature_tiers(sequence: str = AMINO_ACIDS) -> dict[str, str]:
+    """Map every feature column name to the tier that produced it.
+
+    Computed by calling the two builders instead of pattern-matching names, because the
+    ``sp_`` and ``target_`` blocks both carry a composition half and a scale half under one
+    prefix.  Tier B columns are weighted sums of Tier A columns over published scales, so they
+    add no information - the point of the split is to measure whether that prior knowledge helps.
+    """
+    tiers: dict[str, str] = {}
+    tier_a = {
+        **_composition_block(sequence),
+        **dipeptide_counts(sequence),
+        **dipeptide_frequencies(sequence),
+    }
+    for name in tier_a:
+        tiers[name] = "A"
+    for name in physicochemical_features(sequence):
+        tiers[name] = "B"
+    # Lengths are emitted alongside the scale columns but are plain counts of the sequence, so
+    # they belong to the tier that carries no external table.
+    for name in ("seq_length", "sp_length", "mature_length"):
+        tiers[name] = "A"
+    base = dict(tiers)
+    for prefix in ("sp_", "target_"):
+        for name, tier in base.items():
+            tiers[f"{prefix}{name}"] = tier
+    return tiers

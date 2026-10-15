@@ -1,7 +1,10 @@
-"""Sequence feature extraction for the periplasmic expression task.
+"""Sequence feature extraction and honest evaluation for the periplasmic expression task.
 
-Tier A (composition) and Tier B (physicochemistry) only.  See NOT_REPRODUCED for the
-PERISCOPE-Opt features this module deliberately does not emit and why.
+``composition`` / ``physicochemistry`` / ``features`` hold Tier A (counts) and Tier B (published
+scales).  ``dataset`` / ``cv`` / ``modeling`` / ``experiments`` hold the evaluation layer and need
+pandas and scikit-learn; they are deliberately not re-exported here, so building the feature matrix
+only requires Biopython.  See NOT_REPRODUCED for the PERISCOPE-Opt features this package does not
+emit and why.
 """
 
 from rpp.composition import (
