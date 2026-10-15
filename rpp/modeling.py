@@ -25,7 +25,7 @@ from sklearn.preprocessing import StandardScaler
 from rpp.cv import iter_splits
 from rpp.dataset import CLASS_EDGES, YIELD_OFFSET
 
-MODELS = ("ridge", "rf")
+MODELS = ("ridge", "rf", "bagged")
 SELECTORS = {"anova": f_regression, "mi": mutual_info_regression}
 RIDGE_ALPHAS = np.logspace(-2, 4, 25)
 
@@ -41,6 +41,44 @@ class ConstantPredictor(BaseEstimator, RegressorMixin):
         return np.full(len(X), self.value_)
 
 
+class BaggedSelector(BaseEstimator, RegressorMixin):
+    """Average the same learner over bootstrap draws, each doing its own feature selection.
+
+    Ranking 1144 columns against 103 labels is one draw from a very unstable distribution.  If the
+    apparent skill is a property of that draw rather than of the sequences, averaging several draws
+    removes it - which is what the numbers in the README show.
+    """
+
+    def __init__(
+        self,
+        model: str = "ridge",
+        k: int | None = 5,
+        selector: str = "anova",
+        n_bags: int = 20,
+        seed: int = 0,
+    ):
+        self.model = model
+        self.k = k
+        self.selector = selector
+        self.n_bags = n_bags
+        self.seed = seed
+
+    def fit(self, X, y):
+        from sklearn.utils import resample
+
+        rng = np.random.default_rng(self.seed)
+        self.models_ = []
+        for _ in range(self.n_bags):
+            indices = resample(np.arange(len(y)), random_state=int(rng.integers(1 << 30)))
+            pipeline = build_pipeline(self.model, self.k, self.selector, self.seed)
+            pipeline.fit(X[indices], np.asarray(y)[indices])
+            self.models_.append(pipeline)
+        return self
+
+    def predict(self, X):
+        return np.mean([model.predict(X) for model in self.models_], axis=0)
+
+
 def build_pipeline(
     model: str,
     k: int | None,
@@ -54,6 +92,12 @@ def build_pipeline(
     conditions can be compared with and without, rather than being out-shouted by 1144 sequence
     columns that never mention them.
     """
+    if model == "bagged":
+        # Selection runs inside every bag, so the bag is the whole pipeline.
+        return Pipeline(
+            [("bag", BaggedSelector(model="ridge", k=k, selector=selector, seed=seed))]
+        )
+
     steps: list[tuple[str, object]] = [("impute", SimpleImputer(strategy="median"))]
     if k:
         score_func = SELECTORS[selector]
@@ -196,15 +240,46 @@ def classes_from_log(log_values: np.ndarray) -> np.ndarray:
     )
 
 
+def _expected_high_in_top(
+    predicted: np.ndarray, high: np.ndarray, top_k: int
+) -> float:
+    """Number of genuinely high rows in the top ``top_k``, averaged over every way of breaking ties.
+
+    A ridge model with k=5 selected columns gives the same score to every row that lacks all five
+    features, so "the top ten" is not a set until ties are broken - and breaking them by table order
+    would quietly make the headline number depend on a row's position.  Averaging over tie-breaks
+    instead gives one number, and it is the number the shortlist actually earns.
+    """
+    order = np.argsort(-predicted, kind="stable")
+    sorted_values = predicted[order]
+    sorted_high = high[order].astype(float)
+
+    expected = 0.0
+    start = 0
+    n = len(sorted_values)
+    while start < n and start < top_k:
+        end = start
+        while end < n and sorted_values[end] == sorted_values[start]:
+            end += 1
+        if end <= top_k:
+            expected += float(sorted_high[start:end].sum())
+        else:
+            # The group straddles the cut, so only its own base rate is owed to those slots.
+            slots = top_k - start
+            expected += slots * float(sorted_high[start:end].mean())
+        start = end
+    return expected
+
+
 def score(df: pd.DataFrame, predictions: np.ndarray, top_k: int = 10) -> dict[str, float]:
     """Cross-fitted scores.  Errors are on the log scale, so they read as multiples, not mg/L."""
     y = df["log10_yield"].to_numpy(dtype=float)
     truth_class = df["expression_class"].to_numpy(dtype=str)
     delta = np.abs(predictions - y)
 
-    order = np.argsort(-predictions)
-    top = order[:top_k]
     high = truth_class == "H"
+    expected_high = _expected_high_in_top(predictions, high, top_k)
+    distinct, counts = np.unique(np.round(predictions, 9), return_counts=True)
 
     predicted_class = classes_from_log(predictions)
     return {
@@ -215,7 +290,9 @@ def score(df: pd.DataFrame, predictions: np.ndarray, top_k: int = 10) -> dict[st
         "worst_fold_error": float(10.0 ** np.quantile(delta, 0.95)),
         "class_accuracy": float((predicted_class == truth_class).mean()),
         "mcc": float(matthews_corrcoef(truth_class, predicted_class)),
-        f"high_share_in_top{top_k}": float(high[top].mean()),
-        f"high_recall_at_top{top_k}": float(np.isin(np.where(high)[0], top).mean()),
+        f"high_share_in_top{top_k}": expected_high / top_k,
+        f"high_recall_at_top{top_k}": expected_high / max(int(high.sum()), 1),
         "high_base_rate": float(high.mean()),
+        "distinct_predictions": float(len(distinct)),
+        "modal_share": float(counts.max() / len(predictions)),
     }

@@ -1,4 +1,4 @@
-"""Run the four evidence experiments and print what they say.
+"""Run the five evidence experiments and print what they say.
 
     uv run --with pandas --with scikit-learn --with biopython python scripts/run_model.py --quick
 """
@@ -25,12 +25,15 @@ DISPLAY = {
     "mcc": "MCC",
     "high_share_in_top10": "H in top10",
     "high_recall_at_top10": "H caught",
+    "distinct_predictions": "distinct",
+    "modal_share": "biggest tie",
 }
 KEY_COLUMNS = {
     "benchmark": ["strategy", "model", "k", "n_features"],
     "leakage": ["strategy", "model", "k", "selection"],
     "ablation": ["strategy", "model", "feature_set", "k", "n_features"],
     "conditions": ["model", "feature_set", "k", "n_features", "n_rows"],
+    "signal_location": ["model", "feature_set", "k", "selector", "n_features"],
 }
 
 
@@ -70,7 +73,7 @@ def main() -> int:
     for strategy, sizes in fold_sizes.items():
         print(f"  {strategy:<15} {sizes}")
 
-    for experiment in ("benchmark", "leakage", "ablation", "conditions"):
+    for experiment in ("benchmark", "leakage", "ablation", "conditions", "signal_location"):
         summary = summarise(results, experiment)
         print(f"\n== {experiment} ({len(summary)} configurations) ==")
         print(table(summary, experiment))
