@@ -1,0 +1,2 @@
+# Data extraction
+pdfplumber==0.11.6

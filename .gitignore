@@ -1,0 +1,17 @@
+# Source articles are CC BY-NC-ND and stay out of the repository.
+*.pdf
+!docs/**/*.pdf
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+uv.lock
+.DS_Store
+.idea/
+.vscode/
+node_modules/
+.streamlit/secrets.toml
