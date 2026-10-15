@@ -69,6 +69,9 @@ JOIN_DIRECT = {
 }
 
 NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+# A numeric cell is numbers joined by range or list separators, and nothing else.  The supplement
+# mixes ASCII hyphens with typographic dashes inside the same column.
+NUMERIC_CELL_RE = re.compile(r"\d*\.?\d+(?:\s*[-–—−/:,]\s*\d*\.?\d+)*")
 LEVEL_RE = re.compile(r"\(?\b(L|M|H)\b\)?", re.IGNORECASE)
 
 
@@ -116,16 +119,34 @@ def assemble_rows(pages) -> tuple[list[RawRecord], list[str]]:
     return records, stray
 
 
+# Characters the PDF text layer drops in front of numbers (row 78 reads "`12-16" for the time
+# range).  Scrubbed only from the condition and yield cells, so a marker inside a sequence stays.
+PDF_JUNK = str.maketrans("", "", "`*^~")
+SCRUBBED_COLUMNS = {"od", "iptg", "temperature", "time", "yield_mgl"}
+
+
 def collapse(record: RawRecord, col: str) -> str:
     tokens = record.columns.get(col, [])
     if not tokens:
         return ""
     if col in JOIN_DIRECT:
-        return re.sub(r"\s*([-/])\s*", r"\1", "".join(tokens)).strip()
-    return re.sub(r"\s+", " ", " ".join(tokens)).strip()
+        text = re.sub(r"\s*([-/])\s*", r"\1", "".join(tokens))
+    else:
+        text = re.sub(r"\s+", " ", " ".join(tokens))
+    return (text.translate(PDF_JUNK) if col in SCRUBBED_COLUMNS else text).strip()
 
 
 def numbers_in(cell: str) -> list[float]:
+    """Numbers a cell genuinely reports as a measurement.
+
+    A cell counts only if it is nothing but numbers joined by range or list separators.  The
+    supplement otherwise drops notes into numeric columns: 13 rows carry "24h" in the OD column,
+    which is a duration, and one carries "10%" for induction, which is a lactose level, not 10 mM
+    IPTG.  Harvesting 24 and 10 as process conditions would invent values the paper never stated,
+    so those cells keep their raw text and are counted as unspecified.
+    """
+    if not NUMERIC_CELL_RE.fullmatch(cell.strip()):
+        return []
     return [float(n) for n in NUMBER_RE.findall(cell)]
 
 
