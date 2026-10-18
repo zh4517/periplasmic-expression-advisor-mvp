@@ -1,4 +1,4 @@
-"""Sequence feature extraction and honest evaluation for the periplasmic expression task.
+"""用于周质表达任务的序列特征提取与严格评估。
 
 ``composition`` / ``physicochemistry`` / ``features`` hold Tier A (counts) and Tier B (published
 scales).  ``dataset`` / ``cv`` / ``modeling`` / ``experiments`` hold the evaluation layer and need

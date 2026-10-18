@@ -1,4 +1,4 @@
-"""Assemble Tier A + B into one flat feature row."""
+"""将 Tier A 与 Tier B 组合为一行扁平化特征。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from rpp.composition import (
 from rpp.physicochemistry import physicochemical_features
 from rpp.signal_peptides import split_signal_peptide
 
-# Columns of data/processed/features_tier_ab.csv that describe the record rather than the sequence.
+# data/processed/features_tier_ab.csv 中描述记录本身而非序列的列。
 META_COLUMNS = (
     "row_no",
     "protein",
@@ -42,6 +42,7 @@ META_COLUMNS = (
 
 
 def _composition_block(sequence: str) -> dict[str, float]:
+    """汇总只由序列字符直接计数得到的 Tier A 成分特征。"""
     block: dict[str, float] = {}
     block.update(amino_acid_counts(sequence))
     block.update(amino_acid_frequencies(sequence))
@@ -57,22 +58,23 @@ def extract_features(
     signal_peptide: str | None = None,
     include_dipeptides: bool = True,
 ) -> dict[str, float]:
-    """One feature row for a fused SP-protein sequence.
+    """为一条信号肽—蛋白融合序列生成一行特征。
 
-    When the signal peptide is known, the same blocks are recomputed on the translocation
-    signal and the mature protein separately.  Their effects on periplasmic yield are
-    different mechanisms - secretion efficiency versus folding solubility - so pooling
-    them into one vector, as PERISCOPE-Opt does, blurs the distinction.
+    已知信号肽时，会分别在运输信号和成熟蛋白上重新计算同一组特征。两者影响周质产量的机制不同：
+    前者影响分泌效率，后者影响折叠和可溶性。将它们混入同一个向量会模糊这种差异。
     """
     seq = normalise(sequence)
+    # 该布尔值也进入特征表，让模型知道“信号肽是否成功解析”，而非默默混淆两种情况。
     features = {"sp_resolved": signal_peptide is not None}
     features.update(_composition_block(seq))
     features.update(physicochemical_features(seq))
     if include_dipeptides:
+        # 二肽保留相邻残基信息，但维度高、样本少时也更容易造成不稳定，后续由特征选择控制。
         features.update(dipeptide_counts(seq))
         features.update(dipeptide_frequencies(seq))
 
     if signal_peptide:
+        # 若能找到切点，分别为分泌信号和成熟蛋白建特征，反映两者机制不同。
         split = split_signal_peptide(seq, signal_peptide)
         if split:
             sp, mature = split
@@ -98,14 +100,14 @@ def extract_features(
 
 
 def feature_tiers(sequence: str = AMINO_ACIDS) -> dict[str, str]:
-    """Map every feature column name to the tier that produced it.
+    """将每个特征列名映射到生成它的 Tier。
 
-    Computed by calling the two builders instead of pattern-matching names, because the
-    ``sp_`` and ``target_`` blocks both carry a composition half and a scale half under one
-    prefix.  Tier B columns are weighted sums of Tier A columns over published scales, so they
-    add no information - the point of the split is to measure whether that prior knowledge helps.
+    通过调用两个特征构造器来确定列归属，而非匹配列名，因为 ``sp_`` 和 ``target_`` 区块在一个
+    前缀下同时包含组成特征与尺度特征。Tier B 是按公开尺度对 Tier A 加权得到的和，并不增加信息；
+    区分二者是为了检验该先验知识是否有帮助。
     """
     tiers: dict[str, str] = {}
+    # 用真实特征构造函数生成列名，避免依赖脆弱的字符串命名规则。
     tier_a = {
         **_composition_block(sequence),
         **dipeptide_counts(sequence),
@@ -115,8 +117,7 @@ def feature_tiers(sequence: str = AMINO_ACIDS) -> dict[str, str]:
         tiers[name] = "A"
     for name in physicochemical_features(sequence):
         tiers[name] = "B"
-    # Lengths are emitted alongside the scale columns but are plain counts of the sequence, so
-    # they belong to the tier that carries no external table.
+    # 长度虽与理化尺度列一同输出，但本质上是序列直接计数，因此归入不依赖外部尺度表的 Tier A。
     for name in ("seq_length", "sp_length", "mature_length"):
         tiers[name] = "A"
     base = dict(tiers)

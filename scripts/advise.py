@@ -1,4 +1,4 @@
-"""Rank the constructs in a FASTA file and say which answers to distrust.
+"""对 FASTA 中的构建体排序，并指出哪些结果不应被信任。
 
     uv run --with pandas --with scikit-learn --with biopython==1.88 \
         python scripts/advise.py --fasta data/examples/candidates.fa --signal-peptide pelB
@@ -23,10 +23,12 @@ HEADER_SP = re.compile(r"\bsp=([A-Za-z0-9_-]+)")
 
 
 def read_fasta(path: Path) -> list[tuple[str, str, str | None]]:
+    """读取 FASTA，返回（名称、氨基酸序列、可选的单条 SP 标签）。"""
     records: list[tuple[str, str, str | None]] = []
     name, letters, sp = None, [], None
 
     def flush():
+        # 遇到下一条标题或文件结束时，提交正在累积的上一条序列。
         if name is not None:
             records.append((name, "".join(letters), sp))
 
@@ -35,6 +37,7 @@ def read_fasta(path: Path) -> list[tuple[str, str, str | None]]:
         if not line or line.startswith(";"):
             continue
         if line.startswith(">"):
+            # ``|sp=pelB`` 可覆盖命令行给所有记录设置的默认信号肽。
             flush()
             head = line[1:]
             matched = HEADER_SP.search(head)
@@ -48,6 +51,7 @@ def read_fasta(path: Path) -> list[tuple[str, str, str | None]]:
 
 
 def main() -> int:
+    """解析命令行候选序列，训练已选模型并打印按预测产量排序的建议。"""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--fasta", type=Path, required=True)
     ap.add_argument(
@@ -63,10 +67,12 @@ def main() -> int:
         return 1
 
     advisor = fit_advisor()
+    # 单条 FASTA 上标注的 SP 优先；否则才使用命令行的统一 SP。
     ranked = advisor.rank(
         [(name, seq, sp or args.signal_peptide) for name, seq, sp in records]
     )
 
+    # 输出重采样中最常被选中的特征，便于审查模型是否过分依赖偶然特征。
     common = sorted(advisor.picked.items(), key=lambda kv: (-kv[1], kv[0]))[:6]
     print(
         f"{advisor.n_bags} draws of {advisor.k} columns each landed on {len(advisor.picked)} "

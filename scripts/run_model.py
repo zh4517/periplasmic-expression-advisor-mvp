@@ -1,4 +1,4 @@
-"""Run the five evidence experiments and print what they say.
+"""运行五类证据实验，并打印各实验的结论。
 
     uv run --with pandas --with scikit-learn --with biopython python scripts/run_model.py --quick
 """
@@ -38,6 +38,7 @@ KEY_COLUMNS = {
 
 
 def table(summary: pd.DataFrame, experiment: str) -> str:
+    """把某组实验结果裁剪为适合终端阅读的关键列和指标名称。"""
     keys = KEY_COLUMNS[experiment]
     metrics = [c for c in DISPLAY if c in summary.columns]
     view = summary[keys + metrics].copy()
@@ -47,6 +48,7 @@ def table(summary: pd.DataFrame, experiment: str) -> str:
 
 
 def main() -> int:
+    """运行基准、泄漏、消融和条件信息等全部对照实验，并保存长表结果。"""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--quick",
@@ -62,9 +64,11 @@ def main() -> int:
     args = ap.parse_args()
 
     df = load_dataset()
+    # 先打印建模实际使用的数据规模，避免把论文原始实验总量误当作本次训练样本数。
     print("== the table we are actually modelling ==")
     print(describe(df))
 
+    # 每行是“一个模型配置 × 一个外层验证折”的结果，汇总前保留全部明细以便审计。
     results = run_all(df, selector=args.selector, quick=args.quick)
     results.to_csv(args.out, index=False)
 

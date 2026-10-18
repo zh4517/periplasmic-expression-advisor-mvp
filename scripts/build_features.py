@@ -1,4 +1,4 @@
-"""Build the Tier A + B feature matrix from data/processed/table_s2.csv.
+"""从 data/processed/table_s2.csv 构建 Tier A 与 Tier B 特征矩阵。
 
     uv run --with biopython python scripts/build_features.py
 """
@@ -38,14 +38,17 @@ KEEP_COLUMNS = [
 
 
 def main() -> int:
+    """从清理后的 Table S2 生成可供模型训练的 Tier A 与 Tier B 特征矩阵。"""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--in", dest="src", type=Path, default=ROOT / "data/processed/table_s2.csv")
     ap.add_argument("--out", type=Path, default=ROOT / "data/processed/features_tier_ab.csv")
     args = ap.parse_args()
 
     with args.src.open() as fh:
+        # CSV 保留每条融合序列及其原始实验元数据。
         rows = list(csv.DictReader(fh))
 
+    # 表格只给 SP 的文本标签；根据同标签融合序列的公共前缀推断可用切点。
     sps = infer_signal_peptides(rows)
     resolved = {k: v for k, v in sps.items() if v.resolved}
     unresolved = {k: v for k, v in sps.items() if not v.resolved}
@@ -54,6 +57,7 @@ def main() -> int:
     for row in rows:
         label = normalise_label(row["signal_peptide"])
         sp = resolved[label].sequence if label in resolved else None
+        # 无法可靠切分的记录仍保留全序列特征，但不伪造 SP / 成熟蛋白分段特征。
         features = extract_features(row["sequence"], signal_peptide=sp)
         record = {k: row.get(k, "") for k in KEEP_COLUMNS}
         record["sp_inferred_length"] = len(sp) if sp else 0
@@ -61,6 +65,7 @@ def main() -> int:
         record.update(features)
         feature_rows.append(record)
 
+    # 输出目录不存在时创建；写出列顺序以第一条完整特征记录为准。
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(feature_rows[0].keys()))

@@ -1,14 +1,12 @@
-"""Rank candidate constructs, and say when a ranking is not owed an answer.
+"""对候选构建体排序，并在证据不足时明确拒绝给出确定结论。
 
-Every figure in `scripts/run_model.py` is a score on held-out proteins and held-out signal peptides
-drawn from the 103 published rows.  A query outside that envelope is not covered by those numbers, so
-this module returns a warning where a confident number would otherwise be printed.
+`scripts/run_model.py` 中的指标来自 103 条公开记录上的留出蛋白和留出信号肽验证。
+若新输入超出这个适用范围，本模块会给出警告，而不是输出貌似可靠的数字。
 
-The shipped learner averages twenty bootstrap draws of the whole select-then-fit sequence.  A single
-draw over 1144 columns and 103 rows picks five rare dipeptide counts, and 62 of the 103 published
-constructs contain none of them - so one draw answers 62 different proteins with one identical number.
-Bagging removes that, and the disagreement between its bags is a per-query uncertainty that can be
-reported instead of a made-up confidence.
+最终模型对完整的“选特征后拟合”流程进行 20 次 bootstrap 重采样并取平均。单次从
+1,144 列和 103 条记录中筛选时，容易选中 5 个稀有二肽；103 个公开构建体中有 62 个
+完全不含这些二肽，因而会得到相同预测。Bagging 可缓解该问题，并将子模型分歧作为
+单个查询的不确定性提示，而非编造置信度。
 """
 
 from __future__ import annotations
@@ -40,6 +38,7 @@ CONDITIONS_NOTE = (
 
 @dataclass
 class Assessment:
+    # 单个候选构建体的最终评估结果，包含预测、区间、排序与风险提示。
     name: str
     sequence: str
     predicted_mgl: float | None
@@ -52,11 +51,13 @@ class Assessment:
 
     @property
     def usable(self) -> bool:
+        # 只有成功生成预测的候选才允许进入排序列表。
         return self.predicted_mgl is not None
 
 
 @dataclass
 class Advisor:
+    # 将已训练的 bagged 模型、特征列和适用范围封装成面向用户的排序器。
     pipeline: object
     columns: list[str]
     band: float
@@ -72,15 +73,17 @@ class Advisor:
     published_peptides: frozenset[str]
 
     def bag_predictions(self, X: np.ndarray) -> np.ndarray:
-        """One column per bag, so a query's answer can be shown with its own disagreement."""
+        """返回每个 bootstrap 子模型的预测，用于计算该候选自身的不确定性。"""
         bags = self.pipeline.named_steps["bag"].models_
         return np.column_stack([bag.predict(X) for bag in bags])
 
     def assess(
         self, name: str, sequence: str, signal_peptide: str | None = None
     ) -> Assessment:
+        # 按“序列合法性 → 信号肽 → 长度 → 特征 → bag 分歧 → 已知实测值”评估候选。
         warnings: list[str] = []
         try:
+            # normalise 会将序列转为大写并拒绝非标准氨基酸。
             seq = normalise(sequence)
         except ValueError as error:
             return Assessment(
@@ -109,6 +112,7 @@ class Advisor:
                 "of the 103 published rows"
             )
 
+        # 超出训练数据长度范围时仍可给演示性预测，但必须明确标记为外推。
         if not self.length_range[0] <= len(seq) <= self.length_range[1]:
             warnings.append(
                 f"{len(seq)} residues sits outside the "
@@ -119,8 +123,7 @@ class Advisor:
         try:
             row = extract_features(seq, signal_peptide=sp)
         except (ValueError, ZeroDivisionError) as error:
-            # A mature chain of a few residues has no sliding windows left, so the scale columns
-            # it would average are empty.  The library raises; the user gets the reason instead.
+            # 成熟蛋白只剩数个残基时没有可用的滑动窗口，相关尺度列会为空；将库报错转为用户可读原因。
             warnings.append(f"too short to describe: {type(error).__name__}: {error}")
             return Assessment(
                 name=name,
@@ -134,9 +137,10 @@ class Advisor:
                 warnings=warnings,
             )
         X = pd.DataFrame([[row.get(c, np.nan) for c in self.columns]], columns=self.columns)
+        # 每个 bag 独立做过特征选择；它们的分歧是每个候选的局部不确定性。
         per_bag = self.bag_predictions(X.to_numpy(dtype=float))[0]
         log_prediction = float(np.mean(per_bag))
-        # The bags' own spread, on the same multiplication scale as the reported band.
+        # 在对数空间取标准差，再转回“相差几倍”的直观尺度。
         spread_factor = float(10.0 ** np.std(per_bag))
         predicted = float(to_mg_per_l(np.array([log_prediction]))[0])
 
@@ -174,7 +178,7 @@ class Advisor:
         )
 
     def rank(self, candidates) -> list[Assessment]:
-        """Order constructs by predicted yield; anything unrankable goes last with its reason."""
+        """按预测产量排序；无法预测的候选置底并保留拒答原因。"""
         assessments = [self.assess(*tuple(candidate)[:3]) for candidate in candidates]
         ordered = sorted((a for a in assessments if a.usable), key=lambda a: -a.predicted_mgl)
         for position, assessment in enumerate(ordered, start=1):
@@ -182,17 +186,16 @@ class Advisor:
         return ordered + [a for a in assessments if not a.usable]
 
     def _resolve_signal_peptide(self, label: str | None, warnings: list[str]) -> str | None:
-        """Accept a published label ('pelB') or a literal peptide, and say which one was used."""
+        """解析信号肽名称或字面序列，并为未知标签留下可见警告。"""
         if not label:
             return None
-        # signal_peptide_key, not normalise_label: the table writes 'PelB' and 'pel B' for one peptide,
-        # and a lookup that keeps the space would silently fall through to the unverified literal path.
+        # 使用 signal_peptide_key 而非 normalise_label：表内 PelB 和 pel B 指向同一肽，保留空格会静默走到未验证的字面序列分支。
         key = signal_peptide_key(label)
         if key in self.sp_by_label:
             return self.sp_by_label[key]
         text = label.strip().upper()
         if text in self.published_peptides:
-            # Pasted the peptide itself rather than naming it - matched against the table, so trusted.
+            # 用户粘贴的是肽序列本身而不是标签，且它与表中已解析序列匹配，因此可直接使用。
             return text
         if len(text) >= 12 and set(text) <= set(AMINO_ACIDS):
             warnings.append(
@@ -208,7 +211,7 @@ class Advisor:
 
 
 def fit_advisor(df: pd.DataFrame | None = None, table: Path = TABLE_CSV, seed: int = 0) -> Advisor:
-    """Fit the shipped pipeline and read back the envelope a query has to sit inside."""
+    """训练最终 Bagged Ridge，并读取长度、产量、信号肽等适用范围。"""
     df = load_dataset() if df is None else df
     columns = feature_columns(df)
     config = {**PRODUCTION, "seed": seed}
@@ -216,10 +219,10 @@ def fit_advisor(df: pd.DataFrame | None = None, table: Path = TABLE_CSV, seed: i
     pipeline = build_pipeline(config["model"], config["k"], config["selector"], seed)
     X = df[columns].to_numpy(dtype=float)
     y = df["log10_yield"].to_numpy(dtype=float)
+    # 这里用全表拟合是为了部署；性能估计仍由后面的交叉拟合单独完成。
     pipeline.fit(X, y)
 
-    # The band is not a guess.  It is the median absolute error of the honest cross-fit under a
-    # held-out protein, converted back into a multiplication factor.
+    # 典型误差必须来自留出预测，不能使用全表拟合后的训练误差。
     held_out = cross_fit(
         df,
         columns,
@@ -246,6 +249,7 @@ def fit_advisor(df: pd.DataFrame | None = None, table: Path = TABLE_CSV, seed: i
 
     bags = pipeline.named_steps["bag"].models_
     picked: dict[str, int] = {}
+    # 统计各特征被 20 个 bag 选中的次数，用于解释稳定性。
     for bag in bags:
         for name, keep in zip(columns, bag.named_steps["select"].get_support()):
             if keep:
