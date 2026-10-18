@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PeriScope · 构建体优先级演示</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#top" aria-label="PeriScope 首页">
+          <span class="brand-mark">P</span>
+          <span>PeriScope</span>
+          <small>构建体优先级工具</small>
+        </a>
+        <nav><a href="#workspace">分析工作台</a><a href="#method">模型逻辑</a><a href="#limits">使用边界</a></nav>
+        <span class="demo-badge"><i></i> 演示模式</span>
+      </header>
+
+      <section class="hero" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow">E. coli · 周质表达 · 序列优先级</p>
+          <h1>先决定，<em>哪几个构建体</em><br />最值得进实验。</h1>
+          <p class="lede">基于信号肽与成熟蛋白序列，对候选构建体进行保守排序。它给出实验优先级，而非精确产量承诺。</p>
+          <div class="hero-actions"><a class="button primary" href="#workspace">开始分析 <span>↓</span></a><a class="button ghost" href="#method">了解模型</a></div>
+          <div class="hero-stats"><div><strong>103</strong><span>公开构建体记录</span></div><div><strong>1,144</strong><span>序列特征</span></div><div><strong>20</strong><span>重采样子模型</span></div></div>
+        </div>
+        <div class="hero-visual" aria-hidden="true">
+          <div class="orb orb-one"></div><div class="orb orb-two"></div>
+          <div class="sequence-card"><div class="card-label">待测融合蛋白</div><div class="sequence"><b>MKKTAIAIAVALAGFATVAQA</b><span>GSVELK…</span></div><div class="sequence-key"><i></i> 信号肽 <i></i> 成熟蛋白</div></div>
+          <div class="floating-result"><span class="mini-label">候选排序队列</span><strong class="queue-order"><span>01</span><span>02</span><span>03</span></strong><span class="up">首批实验由你决定</span></div>
+          <div class="floating-bars"><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+      </section>
+
+      <section class="workspace section" id="workspace">
+        <div class="section-title"><div><p class="eyebrow">ANALYSIS WORKSPACE</p><h2>候选构建体排序</h2></div><p>输入序列或使用示例数据，查看一个符合真实模型边界的演示输出。</p></div>
+        <div class="workspace-grid">
+          <form class="input-panel" id="analysis-form">
+            <div class="panel-heading"><span class="step">01</span><div><h3>添加候选序列</h3><p>每条序列以 FASTA 标题行开始。</p></div></div>
+            <div class="preset-heading"><label for="fasta">FASTA 序列</label><span>可直接编辑</span></div>
+            <div class="preset-list" aria-label="演示场景">
+              <button class="preset active" type="button" data-preset="antibody">抗体片段</button>
+              <button class="preset" type="button" data-preset="enzyme">酶变体库</button>
+              <button class="preset" type="button" data-preset="mixed">混合候选集</button>
+              <button class="preset warning" type="button" data-preset="boundary">边界案例</button>
+            </div>
+            <div class="demo-count"><span>演示候选数量</span><div><select id="candidate-count" aria-label="演示候选数量"><option value="3">3 个</option><option value="6">6 个</option><option value="10" selected>10 个</option><option value="15">15 个</option></select><button class="generate-link" type="button" id="generate-button">生成变体</button></div></div>
+            <textarea id="fasta" spellcheck="false">>Antibody Fragment A | sp=pelB
+MKYLLPTAAAGLLLLAAQPAMADIQMTQSPSSLSASVGDRVTITCRASQGISSALAWYQQKPGKAPKLLIY
+>Enzyme Variant B | sp=ompA
+MKKTAIAIAVALAGFATVAQAAEADKIRKYLNQEGIDVIEVAPNQATKPKGVVFAE
+>Reporter Protein C | sp=pelB
+MKYLLPTAAAGLLLLAAQPAMASSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATNGKLTLK</textarea>
+            <div class="form-row"><div><label for="signal">默认信号肽</label><select id="signal"><option value="pelB">pelB</option><option value="ompA">ompA</option><option value="none">未指定</option></select></div><div><label for="host">表达体系</label><select id="host"><option>E. coli 周质</option><option disabled>其他体系（不在范围内）</option></select></div></div>
+            <div class="input-footer"><button class="sample-link" type="button" id="sample-button">随机切换示例</button><button class="button primary analyze" type="submit">分析并排序 <span>→</span></button></div>
+          </form>
+
+          <section class="results-panel" aria-live="polite">
+            <div class="panel-heading"><span class="step teal">02</span><div><h3>候选排序</h3><p id="results-subtitle">等待分析候选构建体</p></div><button class="download" title="下载结果" type="button">⇩</button></div>
+            <div class="result-empty" id="result-empty"><div class="empty-icon">⌁</div><strong>准备好后开始分析</strong><p>我们会给出可用于排队的候选集，并同时显示模型的不确定性。</p></div>
+            <div class="result-content hidden" id="result-content">
+              <div class="recommend-control" id="recommend-control"></div>
+              <div class="result-list" id="result-list"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="method section" id="method">
+        <div class="method-copy"><p class="eyebrow">HOW IT WORKS</p><h2>不是黑盒预测，<br />而是一套保守的筛选流程。</h2><p>每一步都围绕一个问题：这个结论是否足够可靠，值得影响下一轮湿实验？</p></div>
+        <div class="flow">
+          <article><span>01</span><h3>解析构建体</h3><p>验证氨基酸字符，识别并分离已知信号肽。</p></article>
+          <article><span>02</span><h3>提取序列特征</h3><p>计算组成、二肽及理化属性；信号肽与成熟链分别描述。</p></article>
+          <article><span>03</span><h3>20 次重采样</h3><p>每次重新挑选特征并训练，避免偶然模式主导结果。</p></article>
+          <article><span>04</span><h3>排序并提示风险</h3><p>输出候选集、宽误差带与超出模型适用范围的警告。</p></article>
+        </div>
+      </section>
+
+      <section class="limits section" id="limits">
+        <div class="limits-card"><div class="warning-icon">!</div><div><p class="eyebrow">READ THIS FIRST</p><h2>这个工具不替代实验，也不推荐培养条件。</h2><p>公开数据只包含 103 个构建体的最佳结果，无法恢复完整的“培养条件—产量”关系。输出应被视为实验资源分配建议，而不是对表达量、培养规模或经济性的预测。</p></div><div class="limits-metrics"><div><strong>3.7–4.4×</strong><span>典型产量误差</span></div><div><strong>0.30–0.60</strong><span>Top-10 高产命中率</span></div></div></div>
+      </section>
+
+      <footer><span>PeriScope · 基于公开案例数据的交互演示</span><span>模型输出仅用于研究与实验设计讨论</span></footer>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
