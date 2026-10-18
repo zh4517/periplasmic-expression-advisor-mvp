@@ -15,3 +15,7 @@ uv.lock
 .vscode/
 node_modules/
 .streamlit/secrets.toml
+
+# Scratch directories left behind by an agent that generated slides locally.
+.codex-build/
+.codex-finalizer/
